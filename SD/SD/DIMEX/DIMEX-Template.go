@@ -31,9 +31,9 @@ import (
 
 type State int // enumeracao dos estados possiveis de um processo
 const (
-	noMX State = iota
-	wantMX
-	inMX
+	noMX State = iota //nao sta acessando
+	wantMX // quer acessar, pedindo permissao
+	inMX //esta brincando
 )
 
 type dmxReq int // enumeracao dos estados possiveis de um processo
@@ -53,7 +53,7 @@ type DIMEX_Module struct {
 	id        int          // identificador do processo - é o indice no array de enderecos acima
 	st        State        // estado deste processo na exclusao mutua distribuida
 	waiting   []bool       // processos aguardando tem flag true
-	lcl       int          // relogio logico local
+	lcl       int          // relogio logico local, "saber a ordem dos pedidos, quem pediu primeiro"
 	reqTs     int          // timestamp local da ultima requisicao deste processo
 	nbrResps  int
 	dbg       bool
@@ -100,9 +100,9 @@ func (module *DIMEX_Module) Start() {
 	go func() {
 		for {
 			select {
-			case dmxR := <-module.Req: // vindo da  aplicação
+			case dmxR := <-module.Req: // vindo da aplicação
 				if dmxR == ENTER {
-					module.outDbg("app pede mx")
+					module.outDbg("app pede mx") //"quero acessar"
 					module.handleUponReqEntry() // ENTRADA DO ALGORITMO
 
 				} else if dmxR == EXIT {
@@ -114,7 +114,7 @@ func (module *DIMEX_Module) Start() {
 				//fmt.Printf("dimex recebe da rede: ", msgOutro)
 				if strings.Contains(msgOutro.Message, "respOK") {
 					module.outDbg("         <<<---- responde! " + msgOutro.Message)
-					module.handleUponDeliverRespOk(msgOutro) // ENTRADA DO ALGORITMO
+					module.handleUponDeliverRespOk(msgOutro) // ENTRADA DO ALGORITMO - "ok pode acessar"
 
 				} else if strings.Contains(msgOutro.Message, "reqEntry") {
 					module.outDbg("          <<<---- pede??  " + msgOutro.Message)
@@ -132,7 +132,7 @@ func (module *DIMEX_Module) Start() {
 // ------- UPON EXIT
 // ------------------------------------------------------------------------------------
 
-func (module *DIMEX_Module) handleUponReqEntry() {
+func (module *DIMEX_Module) handleUponReqEntry() { //pede acesso
 	/*
 		    quando aplicação aplicação solicita[ dmx, Entry ]  faça
 			    lcl ++
@@ -144,7 +144,7 @@ func (module *DIMEX_Module) handleUponReqEntry() {
 	*/
 }
 
-func (module *DIMEX_Module) handleUponReqExit() {
+func (module *DIMEX_Module) handleUponReqExit() { //libera
 	/*
 				quando aplicação avisa [ dmx, Exit   ]  faça
 			  		forall  q  em waiting
@@ -160,7 +160,7 @@ func (module *DIMEX_Module) handleUponReqExit() {
 // ------- UPON reqEntry
 // ------------------------------------------------------------------------------------
 
-func (module *DIMEX_Module) handleUponDeliverRespOk(msgOutro PP2PLink.PP2PLink_Ind_Message) {
+func (module *DIMEX_Module) handleUponDeliverRespOk(msgOutro PP2PLink.PP2PLink_Ind_Message) { //responde o "ok, pode usar"
 	/*
 				quando pl entregar msg  [ pl, Deliver | q, [ respOk ] ]
 					nbrResps++
@@ -170,7 +170,7 @@ func (module *DIMEX_Module) handleUponDeliverRespOk(msgOutro PP2PLink.PP2PLink_I
 	*/
 }
 
-func (module *DIMEX_Module) handleUponDeliverReqEntry(msgOutro PP2PLink.PP2PLink_Ind_Message) {
+func (module *DIMEX_Module) handleUponDeliverReqEntry(msgOutro PP2PLink.PP2PLink_Ind_Message) { //alguem quer entrar e vê pelo relogio logico quem pediu primeiro se tiver mais gente querendo
 	// outro processo quer entrar na SC
 	/*
 				quando pl entregar msg [ pl, Deliver | q, [ reqEntry, rid, rts ]
