@@ -33,7 +33,8 @@ func main() {
 
 	id, _ := strconv.Atoi(os.Args[1])
 	addresses := os.Args[2:]
-	// fmt.Print("id: ", id, "   ") fmt.Println(addresses)
+	fmt.Print("id: ", id, "   ")
+	fmt.Println(addresses)
 
 	var dmx *DIMEX.DIMEX_Module = DIMEX.NewDIMEX(addresses, id, true)
 	fmt.Println(dmx)

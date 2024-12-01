@@ -87,7 +87,7 @@ func NewDIMEX(_addresses []string, _id int, _dbg bool) *DIMEX_Module {
 		dmx.waiting[i] = false
 	}
 	dmx.Start()
-	dmx.outDbg("Init DIMEX!")
+	dmx.outDbg(" ---->>> Init DIMEX! <<<---- ")
 	return dmx
 }
 
@@ -102,22 +102,22 @@ func (module *DIMEX_Module) Start() {
 			select {
 			case dmxR := <-module.Req: // vindo da aplicação
 				if dmxR == ENTER {
-					module.outDbg("app pede mx") //"quero acessar"
+					module.outDbg(" ---->>> PEDI PARA USAR A SC <<<---- ") //"quero acessar"
 					module.handleUponReqEntry() // ENTRADA DO ALGORITMO
 
 				} else if dmxR == EXIT {
-					module.outDbg("app libera mx")
+					module.outDbg(" ---->>> SAI DA SC <<<---- ")
 					module.handleUponReqExit() // ENTRADA DO ALGORITMO
 				}
 
 			case msgOutro := <-module.Pp2plink.Ind: // vindo de outro processo
 				//fmt.Printf("dimex recebe da rede: ", msgOutro)
 				if strings.Contains(msgOutro.Message, "respOK") {
-					module.outDbg("         <<<---- responde! " + msgOutro.Message)
+					module.outDbg(" ---->>> ME RESPONDERAM OK <<<---- " + msgOutro.Message)
 					module.handleUponDeliverRespOk(msgOutro) // ENTRADA DO ALGORITMO - "ok pode acessar"
 
 				} else if strings.Contains(msgOutro.Message, "reqEntry") {
-					module.outDbg("          <<<---- pede??  " + msgOutro.Message)
+					module.outDbg(" ---->>> ME PEDIRAM PARA USAR A SC <<<---- " + msgOutro.Message)
 					module.handleUponDeliverReqEntry(msgOutro) // ENTRADA DO ALGORITMO
 
 				}
@@ -134,24 +134,55 @@ func (module *DIMEX_Module) Start() {
 
 func (module *DIMEX_Module) handleUponReqEntry() { //pede acesso
 	/*
-		    quando aplicação aplicação solicita[ dmx, Entry ]  faça
-			    lcl ++
-		   		reqTs := lcl
-		   		nbrResps := 0
-		   		forall processes q != p
+		    quando aplicação solicita[ dmx, Entry ]  faça
+			    lcl ++												//atualiza o relogio
+		   		reqTs := lcl										//guarda o timestamp
+		   		nbrResps := 0										//zera o contador
+		   		forall processes q != p {							//envia um pedido para todos os outros processos
 		       		manda msg [ pl , Send | q, [ reqEntry, id, reqTs ]
 		   		st := wantMX
 	*/
+	// Incrementa o relógio lógico local
+	module.outDbg(" ---->>> ENTREI NA handleUponReqEntry <<<----")
+	module.outDbg(" ---->>> VOU PEDIR ACESSO <<<----")
+	for i, reqTs := range module.processes {
+		
+	}
+	module.lcl++
+	module.reqTs = module.lcl
+	module.nbrResps = 0
+	
+	// Envia requisições para todos os outros processos
+	for i, address := range module.processes {
+		if i != module.id {
+			msg := fmt.Sprintf("reqEntry,%d,%d", module.id, module.reqTs)
+			module.sendToLink(address, msg, "")
+		}
+	}
+	
+	// Atualiza o estado para "quer entrar na região crítica"
+	module.st = wantMX
+	module.outDbg(" ---->>> MANDEI MSG DE PEDIDO PARA TODO MUNDO <<<----")
 }
 
-func (module *DIMEX_Module) handleUponReqExit() { //libera
+func (module *DIMEX_Module) handleUponReqExit() { //libera. Processo atual termina de acessar
 	/*
-				quando aplicação avisa [ dmx, Exit   ]  faça
-			  		forall  q  em waiting
-		        		manda msg[ pl, Send | q , [ respOk ]  ]
-		   			waiting := {}
-					st := noMX
+				quando aplicação avisa [ dmx, Exit   ]  faça 
+			  		forall  q  em waiting							//1. responde a todos que estao esperando
+		        		manda msg[ pl, Send | q , [ respOk ]  ]		//2. responde avisando que podem acessar
+		   			waiting := {}									//3. esvazia a lista de espera
+					st := noMX										//4. muda de estado
 	*/
+	module.outDbg("ENTREI NO handleUponReqExit")
+	module.outDbg(" ---->>> VOU SAIR DA SC <<<----")
+    for i, isWaiting := range module.waiting {
+        if isWaiting {
+            module.sendToLink(module.processes[i], "respOk", " ")//2
+        }
+    }
+    module.waiting = make([]bool, len(module.processes)) //3
+    module.st = noMX //4
+    module.outDbg(" ---->>> LIBEREI A SC <<<----")
 }
 
 // ------------------------------------------------------------------------------------
@@ -160,42 +191,74 @@ func (module *DIMEX_Module) handleUponReqExit() { //libera
 // ------- UPON reqEntry
 // ------------------------------------------------------------------------------------
 
-func (module *DIMEX_Module) handleUponDeliverRespOk(msgOutro PP2PLink.PP2PLink_Ind_Message) { //responde o "ok, pode usar"
+func (module *DIMEX_Module) handleUponDeliverRespOk(msgOutro PP2PLink.PP2PLink_Ind_Message) { //recebeu uma resposta, responde o "ok, pode usar"
 	/*
-				quando pl entregar msg  [ pl, Deliver | q, [ respOk ] ]
-					nbrResps++
-		   		 	if nbrResps == #processes -1
-		    		then gera evento [ dmx, Deliver | resp ]
-		             	 st := inMX
+				quando pl entregar msg  [ pl, Deliver | q, [ respOk ] ]			// 1. recebeu resposta de outro processo
+					nbrResps++													// 2. incrrementa as respostas recebidas
+		   		 	if nbrResps == #processes -1								// 3. verificou se recebeu respostas de todos os processos -1
+		    		then gera evento [ dmx, Deliver | resp ]					// 4. pode entrar na seção critica
+		             	 st := inMX												// 5. muda de estado
 	*/
+
+	// Incrementa o número de respostas recebidas
+	module.outDbg(" ---->>> ENTREI NA handleUponDeliverRespOk <<<----")
+    module.nbrResps++								// 1
+	module.outDbg(fmt.Sprintf(" ---->>> RESPOSTA OK RECEBIDA DE %s. NUM DE MGS: %d <<<---- ", msgOutro.From, module.nbrResps))
+    if module.nbrResps == len(module.processes)-1 { // 3	
+        module.Ind <- dmxResp{}						// 4
+        module.st = inMX							// 5
+        module.outDbg(" ---->>> ENTRANDO NA SC <<<----")
+    }
+
 }
 
 func (module *DIMEX_Module) handleUponDeliverReqEntry(msgOutro PP2PLink.PP2PLink_Ind_Message) { //alguem quer entrar e vê pelo relogio logico quem pediu primeiro se tiver mais gente querendo
 	// outro processo quer entrar na SC
 	/*
 				quando pl entregar msg [ pl, Deliver | q, [ reqEntry, rid, rts ]
-				   if  (st == noMX)   OR
-		         	   (st == wantMX  AND  after([reqTs,id], [rts,rid]) )
-		    	   then  gera evento [ pl, Send | q , [ respOk ]  ]
-		   	 	   else waiting := waiting + [ q ]
+				   if  (st == noMX)   OR													//nao esta acessando
+		         	   (st == wantMX  AND  after([reqTs,id], [rts,rid]) )					//quer acessar e quem pediu primeiro
+		    	   then  gera evento [ pl, Send | q , [ respOk ]  ]							//responde que pode acessar "OK!"
+		   	 	   else waiting := waiting + [ q ]											//se nao, adiciona na fila
 		        		// if   (st == inMX) OR  (st == wantMX AND [rts,rid]> [reqTs,id])
 		        		// then   waiting := waiting + [ q ]     else  // empty
-		     	   lcl := max(lcl, rts)
+		     	   lcl := max(lcl, rts)														//atualiza o relógio lógico
 	*/
+
+	  // Quando outro processo quer entrar na SC
+    // Se eu não quero entrar na SC ou se eu quero entrar na SC e o outro processo tem prioridade
+
+	
+    // Quando outro processo quer entrar na SC
+    var id, ts int
+	module.outDbg(" ---->>> ENTRANDO NA handleUponDeliverReqEntry <<<----")
+    fmt.Sscanf(msgOutro.Message, "reqEntry,%d,%d", &id, &ts)
+    // Se eu não quero entrar na SC ou se eu quero entrar na SC e o outro processo tem prioridade
+    if module.st == noMX || (module.st == wantMX && before(id, ts, module.id, module.reqTs)) {
+		module.outDbg(" ---->>> VOU DEIXAR ME PASSAR <<<---- ")
+        module.sendToLink(module.processes[id], "respOk", " ") // Deixo passar 
+    } else if module.st == inMX || (module.st == wantMX && before(module.id, module.reqTs, id, ts)) {
+		module.outDbg(" ---->>> VAI TER QUE ESPERAR <<<---- ")
+		module.waiting[id] = true // Mando esperar na fila
+    }
+	if ts > module.lcl{
+		module.outDbg("Entrou no ts > module.lcl")
+        module.lcl = ts // Atualizo o relógio lógico local
+    }
 }
 
 // ------------------------------------------------------------------------------------
 // ------- funcoes de ajuda
 // ------------------------------------------------------------------------------------
 
-func (module *DIMEX_Module) sendToLink(address string, content string, space string) {
+func (module *DIMEX_Module) sendToLink(address string, content string, space string) { //envia mensagem para outros processos
 	module.outDbg(space + " ---->>>>   to: " + address + "     msg: " + content)
 	module.Pp2plink.Req <- PP2PLink.PP2PLink_Req_Message{
 		To:      address,
 		Message: content}
 }
 
-func before(oneId, oneTs, othId, othTs int) bool {
+func before(oneId, oneTs, othId, othTs int) bool { //compara para ver quem tem prioridade
 	if oneTs < othTs {
 		return true
 	} else if oneTs > othTs {
