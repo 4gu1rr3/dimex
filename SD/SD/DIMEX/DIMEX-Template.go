@@ -23,6 +23,7 @@ import (
 	PP2PLink "SD/PP2PLink"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ------------------------------------------------------------------------------------
@@ -57,7 +58,7 @@ type DIMEX_Module struct {
 	reqTs     int          // timestamp local da ultima requisicao deste processo
 	nbrResps  int
 	dbg       bool
-
+	
 	Pp2plink *PP2PLink.PP2PLink // acesso aa comunicacao enviar por PP2PLinq.Req  e receber por PP2PLinq.Ind
 }
 
@@ -133,22 +134,10 @@ func (module *DIMEX_Module) Start() {
 // ------------------------------------------------------------------------------------
 
 func (module *DIMEX_Module) handleUponReqEntry() { //pede acesso
-	/*
-		    quando aplicação solicita[ dmx, Entry ]  faça
-			    lcl ++												//atualiza o relogio
-		   		reqTs := lcl										//guarda o timestamp
-		   		nbrResps := 0										//zera o contador
-		   		forall processes q != p {							//envia um pedido para todos os outros processos
-		       		manda msg [ pl , Send | q, [ reqEntry, id, reqTs ]
-		   		st := wantMX
-	*/
 	// Incrementa o relógio lógico local
 	module.outDbg(" ---->>> ENTREI NA handleUponReqEntry <<<----")
 	module.outDbg(" ---->>> VOU PEDIR ACESSO <<<----")
-	for i, reqTs := range module.processes {
-		
-	}
-	module.lcl++
+	module.lcl = int(time.Now().UnixNano())
 	module.reqTs = module.lcl
 	module.nbrResps = 0
 	
@@ -166,21 +155,14 @@ func (module *DIMEX_Module) handleUponReqEntry() { //pede acesso
 }
 
 func (module *DIMEX_Module) handleUponReqExit() { //libera. Processo atual termina de acessar
-	/*
-				quando aplicação avisa [ dmx, Exit   ]  faça 
-			  		forall  q  em waiting							//1. responde a todos que estao esperando
-		        		manda msg[ pl, Send | q , [ respOk ]  ]		//2. responde avisando que podem acessar
-		   			waiting := {}									//3. esvazia a lista de espera
-					st := noMX										//4. muda de estado
-	*/
 	module.outDbg("ENTREI NO handleUponReqExit")
 	module.outDbg(" ---->>> VOU SAIR DA SC <<<----")
     for i, isWaiting := range module.waiting {
         if isWaiting {
-            module.sendToLink(module.processes[i], "respOk", " ")//2
+            module.sendToLink(module.processes[i], "respOK", " ")
         }
     }
-    module.waiting = make([]bool, len(module.processes)) //3
+    module.waiting = make([]bool, len(module.processes)) 
     module.st = noMX //4
     module.outDbg(" ---->>> LIBEREI A SC <<<----")
 }
@@ -192,51 +174,27 @@ func (module *DIMEX_Module) handleUponReqExit() { //libera. Processo atual termi
 // ------------------------------------------------------------------------------------
 
 func (module *DIMEX_Module) handleUponDeliverRespOk(msgOutro PP2PLink.PP2PLink_Ind_Message) { //recebeu uma resposta, responde o "ok, pode usar"
-	/*
-				quando pl entregar msg  [ pl, Deliver | q, [ respOk ] ]			// 1. recebeu resposta de outro processo
-					nbrResps++													// 2. incrrementa as respostas recebidas
-		   		 	if nbrResps == #processes -1								// 3. verificou se recebeu respostas de todos os processos -1
-		    		then gera evento [ dmx, Deliver | resp ]					// 4. pode entrar na seção critica
-		             	 st := inMX												// 5. muda de estado
-	*/
-
 	// Incrementa o número de respostas recebidas
 	module.outDbg(" ---->>> ENTREI NA handleUponDeliverRespOk <<<----")
-    module.nbrResps++								// 1
+    module.nbrResps++								
 	module.outDbg(fmt.Sprintf(" ---->>> RESPOSTA OK RECEBIDA DE %s. NUM DE MGS: %d <<<---- ", msgOutro.From, module.nbrResps))
-    if module.nbrResps == len(module.processes)-1 { // 3	
-        module.Ind <- dmxResp{}						// 4
-        module.st = inMX							// 5
+    if module.nbrResps == len(module.processes)-1 { 
+        module.Ind <- dmxResp{}						
+        module.st = inMX							
         module.outDbg(" ---->>> ENTRANDO NA SC <<<----")
     }
 
 }
 
 func (module *DIMEX_Module) handleUponDeliverReqEntry(msgOutro PP2PLink.PP2PLink_Ind_Message) { //alguem quer entrar e vê pelo relogio logico quem pediu primeiro se tiver mais gente querendo
-	// outro processo quer entrar na SC
-	/*
-				quando pl entregar msg [ pl, Deliver | q, [ reqEntry, rid, rts ]
-				   if  (st == noMX)   OR													//nao esta acessando
-		         	   (st == wantMX  AND  after([reqTs,id], [rts,rid]) )					//quer acessar e quem pediu primeiro
-		    	   then  gera evento [ pl, Send | q , [ respOk ]  ]							//responde que pode acessar "OK!"
-		   	 	   else waiting := waiting + [ q ]											//se nao, adiciona na fila
-		        		// if   (st == inMX) OR  (st == wantMX AND [rts,rid]> [reqTs,id])
-		        		// then   waiting := waiting + [ q ]     else  // empty
-		     	   lcl := max(lcl, rts)														//atualiza o relógio lógico
-	*/
-
-	  // Quando outro processo quer entrar na SC
-    // Se eu não quero entrar na SC ou se eu quero entrar na SC e o outro processo tem prioridade
-
-	
-    // Quando outro processo quer entrar na SC
+	// Quando outro processo quer entrar na SC
     var id, ts int
 	module.outDbg(" ---->>> ENTRANDO NA handleUponDeliverReqEntry <<<----")
     fmt.Sscanf(msgOutro.Message, "reqEntry,%d,%d", &id, &ts)
     // Se eu não quero entrar na SC ou se eu quero entrar na SC e o outro processo tem prioridade
     if module.st == noMX || (module.st == wantMX && before(id, ts, module.id, module.reqTs)) {
 		module.outDbg(" ---->>> VOU DEIXAR ME PASSAR <<<---- ")
-        module.sendToLink(module.processes[id], "respOk", " ") // Deixo passar 
+        module.sendToLink(module.processes[id], "respOK", " ") // Deixo passar 
     } else if module.st == inMX || (module.st == wantMX && before(module.id, module.reqTs, id, ts)) {
 		module.outDbg(" ---->>> VAI TER QUE ESPERAR <<<---- ")
 		module.waiting[id] = true // Mando esperar na fila
