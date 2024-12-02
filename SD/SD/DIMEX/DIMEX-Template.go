@@ -133,11 +133,10 @@ func (module *DIMEX_Module) Start() {
 // ------- UPON EXIT
 // ------------------------------------------------------------------------------------
 
-func (module *DIMEX_Module) handleUponReqEntry() { //pede acesso
-	// Incrementa o relógio lógico local
+func (module *DIMEX_Module) handleUponReqEntry() { //PEDE ACESSO À SC
 	module.outDbg(" ---->>> ENTREI NA handleUponReqEntry <<<----")
 	module.outDbg(" ---->>> VOU PEDIR ACESSO <<<----")
-	module.lcl = int(time.Now().UnixNano())
+	module.lcl = int(time.Now().UnixNano()) // Incrementa o relógio lógico local (marca a "hr")
 	module.reqTs = module.lcl
 	module.nbrResps = 0
 	
@@ -154,16 +153,16 @@ func (module *DIMEX_Module) handleUponReqEntry() { //pede acesso
 	module.outDbg(" ---->>> MANDEI MSG DE PEDIDO PARA TODO MUNDO <<<----")
 }
 
-func (module *DIMEX_Module) handleUponReqExit() { //libera. Processo atual termina de acessar
+func (module *DIMEX_Module) handleUponReqExit() { //LIBERA O ACESSO À SC (SAI). Processo atual termina de acessar
 	module.outDbg("ENTREI NO handleUponReqExit")
 	module.outDbg(" ---->>> VOU SAIR DA SC <<<----")
-    for i, isWaiting := range module.waiting {
-        if isWaiting {
+    for i, isWaiting := range module.waiting { 
+        if isWaiting {							//vê quem ta esperando e avisa a todos que saiu
             module.sendToLink(module.processes[i], "respOK", " ")
         }
     }
     module.waiting = make([]bool, len(module.processes)) 
-    module.st = noMX //4
+    module.st = noMX // Atualiza o estado para "não está na região crítica"
     module.outDbg(" ---->>> LIBEREI A SC <<<----")
 }
 
@@ -173,21 +172,20 @@ func (module *DIMEX_Module) handleUponReqExit() { //libera. Processo atual termi
 // ------- UPON reqEntry
 // ------------------------------------------------------------------------------------
 
-func (module *DIMEX_Module) handleUponDeliverRespOk(msgOutro PP2PLink.PP2PLink_Ind_Message) { //recebeu uma resposta, responde o "ok, pode usar"
+func (module *DIMEX_Module) handleUponDeliverRespOk(msgOutro PP2PLink.PP2PLink_Ind_Message) { //recebeu uma resposta, o "ok, pode usar"
 	// Incrementa o número de respostas recebidas
 	module.outDbg(" ---->>> ENTREI NA handleUponDeliverRespOk <<<----")
     module.nbrResps++								
-	module.outDbg(fmt.Sprintf(" ---->>> RESPOSTA OK RECEBIDA DE %s. NUM DE MGS: %d <<<---- ", msgOutro.From, module.nbrResps))
-    if module.nbrResps == len(module.processes)-1 { 
-        module.Ind <- dmxResp{}						
-        module.st = inMX							
+	module.outDbg(fmt.Sprintf(" ---->>> RESPOSTA OK RECEBIDA DE %s. NUM DE MGS: %d <<<---- ", msgOutro.From, module.nbrResps)) //"recebi ok de fulano"
+    if module.nbrResps == len(module.processes)-1 {  //se o numero de respostas for igual ao numero de processos, pode entrar
+        module.Ind <- dmxResp{} // Informa a aplicação que pode acessar
+        module.st = inMX		// Atualiza o estado para "está na região crítica"				
         module.outDbg(" ---->>> ENTRANDO NA SC <<<----")
     }
 
 }
 
 func (module *DIMEX_Module) handleUponDeliverReqEntry(msgOutro PP2PLink.PP2PLink_Ind_Message) { //alguem quer entrar e vê pelo relogio logico quem pediu primeiro se tiver mais gente querendo
-	// Quando outro processo quer entrar na SC
     var id, ts int
 	module.outDbg(" ---->>> ENTRANDO NA handleUponDeliverReqEntry <<<----")
     fmt.Sscanf(msgOutro.Message, "reqEntry,%d,%d", &id, &ts)
